@@ -41,6 +41,7 @@ function getHandlerArguments(
     }
 
     case HandlerType.OnRpcRequest:
+    case HandlerType.OnCronjob:
     case HandlerType.SnapKeyring:
       return { origin, request };
 
