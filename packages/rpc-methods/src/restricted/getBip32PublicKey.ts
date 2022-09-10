@@ -9,7 +9,7 @@ import {
 } from '@metamask/controllers';
 import { ethErrors } from 'eth-rpc-errors';
 import { NonEmptyArray } from '@metamask/utils';
-import { BIP32Node, SLIP10Node } from '@metamask/key-tree';
+import { BIP32Node, JsonSLIP10Node, SLIP10Node } from '@metamask/key-tree';
 
 import { SnapCaveatType } from '../caveats';
 import { isEqual } from '../utils';
@@ -46,7 +46,6 @@ type GetBip32PublicKeySpecification = ValidPermissionSpecification<{
 type GetBip32PublicKeyParameters = {
   path: ['m', ...(`${number}` | `${number}'`)[]];
   curve: 'secp256k1' | 'ed25519';
-  compressed?: boolean;
 };
 
 /**
@@ -109,14 +108,34 @@ export const getBip32PublicKeyCaveatSpecifications: Record<
 
         const path = caveat.value.find(
           (caveatPath) =>
-            isEqual(params.path, caveatPath.path) &&
-            caveatPath.curve === params.curve,
+            isEqual(
+              params.path.slice(0, caveatPath.path.length),
+              caveatPath.path,
+            ) && caveatPath.curve === params.curve,
         );
 
         if (!path) {
           throw ethErrors.provider.unauthorized({
             message:
               'The requested path is not permitted. Allowed paths must be specified in the snap manifest.',
+          });
+        }
+
+        // Public keys can derive unhardened child keys, but not hardened ones.
+        // Here we check that the path does not contain any hardened keys after
+        // the path specified in the caveat.
+        //
+        // Note that ed25519 keys must be hardened, so it's not possible to
+        // derive child nodes with this method. This is handled by the
+        // `validatePath` function.
+        if (
+          params.path
+            .slice(path.path.length)
+            .some((segment) => segment.endsWith("'"))
+        ) {
+          throw ethErrors.provider.unauthorized({
+            message:
+              'The requested path is not permitted. Only unhardened child nodes can be derived from the path specified in the snap manifest.',
           });
         }
 
@@ -134,7 +153,7 @@ export const getBip32PublicKeyCaveatSpecifications: Record<
  * @param hooks.getMnemonic - A function to retrieve the Secret Recovery Phrase of the user.
  * @param hooks.getUnlockPromise - A function that resolves once the MetaMask extension is unlocked
  * and prompts the user to unlock their MetaMask if it is locked.
- * @returns The method implementation which returns a public key.
+ * @returns The method implementation which returns a public SLIP10Node.
  * @throws If the params are invalid.
  */
 export function getBip32PublicKeyImplementation({
@@ -143,7 +162,7 @@ export function getBip32PublicKeyImplementation({
 }: GetBip32PublicKeyMethodHooks) {
   return async function getBip32PublicKey(
     args: RestrictedMethodOptions<GetBip32PublicKeyParameters>,
-  ): Promise<string> {
+  ): Promise<JsonSLIP10Node> {
     await getUnlockPromise(true);
 
     // `args.params` is validated by the decorator, so it's safe to assert here.
@@ -160,10 +179,6 @@ export function getBip32PublicKeyImplementation({
       ],
     });
 
-    if (params.compressed) {
-      return node.compressedPublicKeyBuffer.toString('hex');
-    }
-
-    return node.publicKey;
+    return node.neuter().toJSON();
   };
 }

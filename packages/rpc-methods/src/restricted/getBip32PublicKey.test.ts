@@ -63,6 +63,22 @@ describe('getBip32PublicKeyCaveatSpecifications', () => {
       ).toBe('foo');
     });
 
+    it('allows deriving child nodes', async () => {
+      const fn = jest.fn().mockImplementation(() => 'foo');
+
+      expect(
+        await getBip32PublicKeyCaveatSpecifications[
+          SnapCaveatType.PermittedDerivationPaths
+        ].decorator(fn, {
+          type: SnapCaveatType.PermittedDerivationPaths,
+          value: [params],
+          // @ts-expect-error Missing other required properties.
+        })({
+          params: { path: ['m', "44'", "60'", '0', '1'], curve: 'secp256k1' },
+        }),
+      ).toBe('foo');
+    });
+
     it('throws if the path is invalid', async () => {
       const fn = jest.fn().mockImplementation(() => 'foo');
 
@@ -92,6 +108,22 @@ describe('getBip32PublicKeyCaveatSpecifications', () => {
         })({ params: { ...params, path: ['m', "44'", "0'"] } }),
       ).rejects.toThrow(
         'The requested path is not permitted. Allowed paths must be specified in the snap manifest.',
+      );
+    });
+
+    it('throws if the child path contains hardened segments', async () => {
+      const fn = jest.fn().mockImplementation(() => 'foo');
+
+      await expect(
+        getBip32PublicKeyCaveatSpecifications[
+          SnapCaveatType.PermittedDerivationPaths
+        ].decorator(fn, {
+          type: SnapCaveatType.PermittedDerivationPaths,
+          value: [params],
+          // @ts-expect-error Missing other required properties.
+        })({ params: { ...params, path: ['m', "44'", "60'", "0'", '0'] } }),
+      ).rejects.toThrow(
+        'The requested path is not permitted. Only unhardened child nodes can be derived from the path specified in the snap manifest.',
       );
     });
   });
@@ -129,32 +161,17 @@ describe('getBip32PublicKeyImplementation', () => {
             curve: 'secp256k1',
           },
         }),
-      ).toMatchInlineSnapshot(
-        `"04b21938e18aec1e2e7478988ccae5b556597d771c8e46ac2c8ea2a4a1a80619679230a109cd30e8af15856b15799e38991e45e55f406a8a24d5605ba0757da53c"`,
-      );
-    });
-
-    it('derives the compressed public key from the path', async () => {
-      const getUnlockPromise = jest.fn().mockResolvedValue(undefined);
-      const getMnemonic = jest
-        .fn()
-        .mockResolvedValue(TEST_SECRET_RECOVERY_PHRASE);
-
-      expect(
-        await getBip32PublicKeyImplementation({
-          getUnlockPromise,
-          getMnemonic,
-          // @ts-expect-error Missing other required properties.
-        })({
-          params: {
-            path: ['m', "44'", "60'", '1', '2', '3'],
-            curve: 'secp256k1',
-            compressed: true,
-          },
-        }),
-      ).toMatchInlineSnapshot(
-        `"03a797bad3e493c256dc3064a8dd9f214f246e3ef954c767d8c6548040eee645b7"`,
-      );
+      ).toMatchInlineSnapshot(`
+        Object {
+          "chainCode": "6265b647bc0e70480f29856be102fe866ea6a8ec9e2926c198c2e9c4cd268a43",
+          "curve": "secp256k1",
+          "depth": 5,
+          "index": 1,
+          "parentFingerprint": 4280199180,
+          "privateKey": undefined,
+          "publicKey": "04b21938e18aec1e2e7478988ccae5b556597d771c8e46ac2c8ea2a4a1a80619679230a109cd30e8af15856b15799e38991e45e55f406a8a24d5605ba0757da53c",
+        }
+      `);
     });
   });
 });
